@@ -329,6 +329,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         serverChat.target = self
         menu.addItem(serverChat)
 
+        let dashboard = NSMenuItem(title: "总览仪表盘…", action: #selector(openDashboard), keyEquivalent: "1")
+        dashboard.target = self
+        menu.addItem(dashboard)
+
         let history = NSMenuItem(title: "历史记录…", action: #selector(openHistory), keyEquivalent: "h")
         history.target = self
         menu.addItem(history)
@@ -617,6 +621,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func openServerChat() {
         ServerChatWindowController.shared.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openDashboard() {
+        DashboardWindowController.shared.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
