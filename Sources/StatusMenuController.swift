@@ -6,18 +6,23 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var timer: Timer?
+    private var serverTimer: Timer?
     private var isRefreshing = false
     private var lastRefreshTime: Date?
     private var lastTitle = ""
     private var pendingRefresh: DispatchWorkItem?
+    private var notifiedServerAlerts: Set<String> = []
 
     private var settingsWindow: SettingsWindowController?
+    private var serverWindow: ServerWindowController?
 
     override init() {
         super.init()
         setupStatusItem()
         startTimer()
         refreshAll()
+        startServerTimer()
+        checkServers()
     }
 
     // MARK: - 状态栏
@@ -243,6 +248,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        // 服务器状态
+        addServerSection(to: menu)
+
+        menu.addItem(.separator())
+
         // 状态行
         let lastText = lastRefreshTime.map { "上次更新 \(Self.timeString($0))" } ?? "尚未刷新"
         let intervalText = "自动刷新 \(Int(max(15, Store.shared.config.refreshInterval)))s"
@@ -254,6 +264,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let refresh = NSMenuItem(title: "立即刷新", action: #selector(refreshAction), keyEquivalent: "r")
         refresh.target = self
         menu.addItem(refresh)
+
+        let serverMgr = NSMenuItem(title: "服务器管理…", action: #selector(openServerManager), keyEquivalent: "s")
+        serverMgr.target = self
+        menu.addItem(serverMgr)
 
         let settings = NSMenuItem(title: "设置…", action: #selector(openSettingsAction), keyEquivalent: ",")
         settings.target = self
@@ -339,6 +353,102 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 menu.addItem(item)
             }
         }
+    }
+
+    // MARK: - 服务器监控
+
+    private func addServerSection(to menu: NSMenu) {
+        let servers = Store.shared.servers
+        if servers.isEmpty {
+            let item = NSMenuItem(title: "服务器监控：点下方「服务器管理…」添加", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+        let header = NSMenuItem(title: "服务器状态（每小时更新）", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+
+        for server in servers {
+            let st = Store.shared.serverStatus(for: server.id)
+            let line: String
+            if let st = st, st.online {
+                let dot = (st.memPercent >= 90 || st.diskPercent >= 85) ? "🔴" : "🟢"
+                line = "\(dot) \(server.name)  内存 \(Int(st.memPercent))% · 磁盘 \(Int(st.diskPercent))% · 负载 \(String(format: "%.2f", st.load1))"
+            } else if let st = st {
+                line = "🔴 \(server.name)  \(st.error ?? "采集失败")"
+            } else {
+                line = "⚪ \(server.name)  未采集"
+            }
+            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+
+            if let st = st, st.online, let last = st.logins.first {
+                let sub = NSMenuItem(title: "   最近登录：\(last.user) @ \(last.fromIP)  \(last.time)", action: nil, keyEquivalent: "")
+                sub.isEnabled = false
+                menu.addItem(sub)
+            }
+        }
+    }
+
+    func startServerTimer() {
+        serverTimer?.invalidate()
+        let t = Timer(timeInterval: 3600, target: self, selector: #selector(serverTimerFired), userInfo: nil, repeats: true)
+        RunLoop.main.add(t, forMode: .common)
+        serverTimer = t
+    }
+
+    @objc private func serverTimerFired() {
+        checkServers()
+    }
+
+    func checkServers() {
+        let servers = Store.shared.servers.filter { $0.enabled }
+        guard !servers.isEmpty else { return }
+        for server in servers {
+            ServerMonitor.shared.collect(server: server) { [weak self] status in
+                DispatchQueue.main.async {
+                    Store.shared.record(serverStatus: status)
+                    self?.checkServerAlert(server: server, status: status)
+                    self?.statusItem.menu = self?.buildMenu()
+                }
+            }
+        }
+    }
+
+    private func checkServerAlert(server: ServerConfig, status: ServerStatus) {
+        guard status.online else { return }
+        var alerts: [String] = []
+        if status.memPercent >= 90 {
+            let key = "\(server.id):mem"
+            if !notifiedServerAlerts.contains(key) {
+                notifiedServerAlerts.insert(key)
+                alerts.append("内存使用率 \(Int(status.memPercent))%（可用 \(Int(status.memAvailMB))MB）")
+            }
+        } else {
+            notifiedServerAlerts.remove("\(server.id):mem")
+        }
+        if status.diskPercent >= 85 {
+            let key = "\(server.id):disk"
+            if !notifiedServerAlerts.contains(key) {
+                notifiedServerAlerts.insert(key)
+                alerts.append("磁盘使用率 \(Int(status.diskPercent))%（剩余 \(max(0, status.diskTotalGB - status.diskUsedGB))GB）")
+            }
+        } else {
+            notifiedServerAlerts.remove("\(server.id):disk")
+        }
+        for a in alerts {
+            notify(title: "服务器告警 · \(server.name)", body: a)
+        }
+    }
+
+    @objc private func openServerManager() {
+        if serverWindow == nil {
+            serverWindow = ServerWindowController()
+        }
+        serverWindow?.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Actions
