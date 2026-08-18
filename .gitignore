@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# 构建产物 / build artifacts
+DeepSeekBalance.app/
+*.app
+
+# Python 图标生成中间文件
+__pycache__/
+AppIcon.iconset/
+icon_1024.png
