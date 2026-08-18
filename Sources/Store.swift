@@ -11,11 +11,15 @@ final class Store {
     private let recordsURL: URL
     private let serversURL: URL
     private let serverStatusURL: URL
+    private let alertsURL: URL
+    private let serverHistoryURL: URL
 
     var config = AppConfig()
     private(set) var records: [DayRecord] = []
     private(set) var servers: [ServerConfig] = []
     private(set) var serverStatuses: [String: ServerStatus] = [:] // serverId -> 最近采集结果
+    private(set) var alerts: [AlertRecord] = []
+    private(set) var serverHistory: [ServerHistoryEntry] = []
     private var latestResults: [String: BalanceResult] = [:] // keyId -> 最近一次结果
     private var lastSeen: [String: (total: Double, time: Date)] = [:] // 上一轮观测余额+时间，用于算 delta/dt
 
@@ -26,6 +30,8 @@ final class Store {
         recordsURL = dir.appendingPathComponent("records.json")
         serversURL = dir.appendingPathComponent("servers.json")
         serverStatusURL = dir.appendingPathComponent("server_status.json")
+        alertsURL = dir.appendingPathComponent("alerts.json")
+        serverHistoryURL = dir.appendingPathComponent("server_history.json")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
@@ -50,6 +56,14 @@ final class Store {
            let st = try? JSONDecoder().decode([String: ServerStatus].self, from: d) {
             serverStatuses = st
         }
+        if let d = try? Data(contentsOf: alertsURL),
+           let a = try? JSONDecoder().decode([AlertRecord].self, from: d) {
+            alerts = a
+        }
+        if let d = try? Data(contentsOf: serverHistoryURL),
+           let h = try? JSONDecoder().decode([ServerHistoryEntry].self, from: d) {
+            serverHistory = h
+        }
     }
 
     func save() {
@@ -59,6 +73,8 @@ final class Store {
         if let d = try? enc.encode(records) { try? d.write(to: recordsURL) }
         if let d = try? enc.encode(servers) { try? d.write(to: serversURL) }
         if let d = try? enc.encode(serverStatuses) { try? d.write(to: serverStatusURL) }
+        if let d = try? enc.encode(alerts) { try? d.write(to: alertsURL) }
+        if let d = try? enc.encode(serverHistory) { try? d.write(to: serverHistoryURL) }
     }
 
     // MARK: - 服务器管理
@@ -80,11 +96,34 @@ final class Store {
 
     func record(serverStatus: ServerStatus) {
         serverStatuses[serverStatus.serverId] = serverStatus
+        // 追加历史快照（精简），保留 7 天
+        serverHistory.append(ServerHistoryEntry(
+            serverId: serverStatus.serverId,
+            timestamp: serverStatus.timestamp,
+            online: serverStatus.online,
+            memPercent: serverStatus.memPercent,
+            diskPercent: serverStatus.diskPercent,
+            swapPercent: serverStatus.swapPercent,
+            load1: serverStatus.load1))
+        let cutoff = Date().addingTimeInterval(-7 * 86400)
+        serverHistory.removeAll { $0.timestamp < cutoff }
+        if serverHistory.count > 2000 { serverHistory.removeFirst(serverHistory.count - 2000) }
         save()
     }
 
     func serverStatus(for id: String) -> ServerStatus? {
         serverStatuses[id]
+    }
+
+    // MARK: - 历史记录
+
+    /// 记录一条告警历史（保留 90 天）
+    func record(alert: AlertRecord) {
+        alerts.append(alert)
+        let cutoff = Date().addingTimeInterval(-90 * 86400)
+        alerts.removeAll { $0.timestamp < cutoff }
+        if alerts.count > 5000 { alerts.removeFirst(alerts.count - 5000) }
+        save()
     }
 
     // MARK: - 快照与用量
