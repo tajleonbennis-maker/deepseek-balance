@@ -7,11 +7,15 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var timer: Timer?
     private var serverTimer: Timer?
+    private var localTimer: Timer?
     private var isRefreshing = false
     private var lastRefreshTime: Date?
     private var lastTitle = ""
     private var pendingRefresh: DispatchWorkItem?
     private var notifiedServerAlerts: Set<String> = []
+    private var localStatus: LocalStatus?
+    private var lastLocalTime: Date?
+    private var notifiedLocalMemAlert = false
 
     private var settingsWindow: SettingsWindowController?
     private var serverWindow: ServerWindowController?
@@ -23,6 +27,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         refreshAll()
         startServerTimer()
         checkServers()
+        startLocalMonitor()
+        collectLocal()
     }
 
     // MARK: - 状态栏
@@ -77,6 +83,48 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         if let last = lastRefreshTime, Date().timeIntervalSince(last) < 10 { return }
         refreshAll(rebuildMenu: false)
+        // 本机状态：超过 5 分钟补刷
+        if let lt = lastLocalTime, Date().timeIntervalSince(lt) > 300 {
+            collectLocal(rebuild: false)
+        }
+    }
+
+    // MARK: - 本机 Mac 监控
+
+    func startLocalMonitor() {
+        localTimer?.invalidate()
+        let t = Timer(timeInterval: 1800, target: self, selector: #selector(localTimerFired), userInfo: nil, repeats: true)
+        RunLoop.main.add(t, forMode: .common)
+        localTimer = t
+    }
+
+    @objc private func localTimerFired() {
+        collectLocal()
+    }
+
+    func collectLocal(rebuild: Bool = true) {
+        LocalMonitor.shared.collect { [weak self] status in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.localStatus = status
+                self.lastLocalTime = status.timestamp
+                // 内存 ≥ 90% 告警（恢复 <85% 解除）
+                if status.memPercent >= 90 {
+                    if !self.notifiedLocalMemAlert {
+                        self.notifiedLocalMemAlert = true
+                        let top = status.topProcesses.prefix(3).map { "\($0.name) \(String(format: "%.1f", $0.memGB))GB" }.joined(separator: " / ")
+                        self.notify(title: "本机内存告警 · Mac",
+                                    body: "内存使用率 \(Int(status.memPercent))%，Top 占用：\(top)",
+                                    category: "本机告警", subject: "本机 Mac")
+                    }
+                } else if status.memPercent < 85 {
+                    self.notifiedLocalMemAlert = false
+                }
+                if rebuild {
+                    self.statusItem.menu = self.buildMenu()
+                }
+            }
+        }
     }
 
     /// 刷新所有启用的 key
@@ -251,6 +299,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        // 本机 Mac 状态
+        addLocalSection(to: menu)
+
+        menu.addItem(.separator())
+
         // 服务器状态
         addServerSection(to: menu)
 
@@ -360,6 +413,40 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         } else {
             for l in lines {
                 let item = NSMenuItem(title: l, action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            }
+        }
+    }
+
+    // MARK: - 本机 Mac 状态
+
+    private func addLocalSection(to menu: NSMenu) {
+        let header = NSMenuItem(title: "本机 Mac", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+
+        guard let st = localStatus else {
+            let item = NSMenuItem(title: "  ⚪ 采集中…", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+        let memColor = st.memPercent >= 90 ? "🔴" : (st.memPercent >= 75 ? "🟠" : "🟢")
+        let cpuColor = st.cpuPercent >= 85 ? "🔴" : "🟢"
+        let line = NSMenuItem(title: String(format: "  %@ CPU %.0f%% · 内存 %@ %.0f%% · 磁盘 %.0f%%",
+                                           cpuColor, st.cpuPercent, memColor, st.memPercent, st.diskPercent),
+                              action: nil, keyEquivalent: "")
+        line.isEnabled = false
+        menu.addItem(line)
+
+        if !st.topProcesses.isEmpty {
+            let top = st.topProcesses.prefix(5).map { String(format: "  %@  %.1f GB", $0.name, $0.memGB) }
+            let topItem = NSMenuItem(title: "  内存 Top 5：", action: nil, keyEquivalent: "")
+            topItem.isEnabled = false
+            menu.addItem(topItem)
+            for p in top {
+                let item = NSMenuItem(title: p, action: nil, keyEquivalent: "")
                 item.isEnabled = false
                 menu.addItem(item)
             }
