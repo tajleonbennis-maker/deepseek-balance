@@ -19,6 +19,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private var settingsWindow: SettingsWindowController?
     private var serverWindow: ServerWindowController?
+    private var popover: NSPopover?
+    private var dashboardVC: DashboardViewController?
 
     override init() {
         super.init()
@@ -41,8 +43,28 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         button.imagePosition = .imageLeading
         button.title = "…"
         button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        statusItem.menu = buildMenu()
-        statusItem.menu?.delegate = self
+        button.target = self
+        button.action = #selector(togglePopover(_:))
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    @objc private func togglePopover(_ sender: Any?) {
+        if let pop = popover, pop.isShown {
+            pop.performClose(sender)
+            return
+        }
+        if popover == nil {
+            let pop = NSPopover()
+            pop.behavior = .transient   // 点别处自动关
+            pop.contentSize = NSSize(width: 320, height: 560)
+            let vc = DashboardViewController()
+            pop.contentViewController = vc
+            popover = pop
+            dashboardVC = vc
+        }
+        if let button = statusItem.button {
+            popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
     }
 
     /// 汇总余额显示到菜单栏：CNY 优先，USD 追加
@@ -277,7 +299,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
 
         // 头部
-        let header = NSMenuItem(title: "DeepSeek 余额监控", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "DeepSeek 余额监控 v1.4.0", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
 
