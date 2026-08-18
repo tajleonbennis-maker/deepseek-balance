@@ -220,7 +220,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         return f.string(from: d)
     }
 
-    /// 格式化 Top 进程展示：业务名 + 进程名 + 内存% + CPU% + PID（业务名 14 字、comm 18 字固定列宽对齐）
+    /// 格式化 Top 进程展示：业务名 + 进程名 + 内存% + CPU% + PID（纯字符串拼接，避免 String(format:) 的 %s 崩溃）
     private static func formatProcLines(_ rows: [String]) -> String {
         var out = "Top 进程（按业务）：\n"
         for row in rows {
@@ -228,7 +228,9 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
             if f.count == 5 {
                 let biz = f[0].padding(toLength: 14, withPad: " ", startingAt: 0)
                 let comm = f[1].padding(toLength: 18, withPad: " ", startingAt: 0)
-                out += String(format: "%@%@  %5s%% %5s%%  pid %@\n", biz, comm, f[2], f[3], f[4])
+                let mem = f[2].padding(toLength: 5, withPad: " ", startingAt: 0)
+                let cpu = f[3].padding(toLength: 5, withPad: " ", startingAt: 0)
+                out += "\(biz)\(comm)  \(mem)% \(cpu)%  pid \(f[4])\n"
             } else {
                 out += row + "\n"
             }
