@@ -31,6 +31,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private let saveBtn = NSButton(title: "保存并关闭", target: nil, action: nil)
     private let notifStatusLabel = NSTextField(labelWithString: "通知权限：检查中…")
     private let notifBtn = NSButton(title: "打开系统设置", target: nil, action: nil)
+    private let cpuTempCheck = NSButton(checkboxWithTitle: "精确 CPU 温度（管理员权限）", target: nil, action: nil)
+    private let sudoField = NSSecureTextField()
     private let hintLabel = NSTextField(labelWithString: "数据仅存本地：~/Library/Application Support/DeepSeekBalance/")
     private let onChangeLabel = NSTextField(labelWithString: "金额阈值可随时改：点击输入框，直接输入数字，回车保存")
 
@@ -38,7 +40,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     // 固定窗口尺寸
     private let winW: CGFloat = 640
-    private let winH: CGFloat = 540
+    private let winH: CGFloat = 620
 
     init(onChange: @escaping () -> Void) {
         self.onChange = onChange
@@ -120,7 +122,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         }
 
         // ---- 选项区（NSBox）----
-        let boxH: CGFloat = 190
+        let boxH: CGFloat = 235
         let boxY = btnY - 14 - boxH
         settingsBox.frame = NSRect(x: margin, y: boxY, width: winW - 2*margin, height: boxH)
         settingsBox.title = " 告警与刷新 "
@@ -146,11 +148,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         onChangeLabel.textColor = .tertiaryLabelColor
         onChangeLabel.font = NSFont.systemFont(ofSize: 10)
 
-        // 3 行布局（每行 36，坐标基于 box 高度 190 静态计算，避免依赖 bc.bounds）
+        // 5 行布局（每行 36，box 高 235：内容顶 ≈205，行1 centerY=187）
         let rowH: CGFloat = 36
-        let row1Y: CGFloat = 142   // 第 1 行控件中心 y
-        let row2Y = row1Y - rowH   // 106
-        let row3Y = row2Y - rowH   // 70
+        let row1Y: CGFloat = 187   // 第 1 行控件中心 y
+        let row2Y = row1Y - rowH   // 151
+        let row3Y = row2Y - rowH   // 115
+        let row4Y = row3Y - rowH   // 79
 
         // 第 1 行：自动刷新 + 余额阈值
         bc.addSubview(NSTextField.styledLabel("自动刷新间隔：", x: 12, y: row1Y, w: 120))
@@ -173,7 +176,6 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         for v in [rateCheck, rateThresholdField, rateUnit] { v.translatesAutoresizingMaskIntoConstraints = true; bc.addSubview(v) }
 
         // 第 4 行：通知权限状态
-        let row4Y = row3Y - rowH   // 34
         notifStatusLabel.textColor = .secondaryLabelColor
         notifStatusLabel.font = NSFont.systemFont(ofSize: 12)
         notifStatusLabel.frame = NSRect(x: 12, y: row4Y, width: 300, height: 22)
@@ -182,6 +184,19 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         notifBtn.action = #selector(openNotificationSettings)
         notifBtn.frame = NSRect(x: 320, y: row4Y - 3, width: 120, height: 24)
         for v in [notifStatusLabel, notifBtn] { v.translatesAutoresizingMaskIntoConstraints = true; bc.addSubview(v) }
+
+        // 第 5 行：本机监控（精确 CPU 温度 + 管理员密码）
+        let row5Y = row4Y - rowH   // 43
+        cpuTempCheck.target = self
+        cpuTempCheck.action = #selector(cpuTempToggled)
+        cpuTempCheck.frame = NSRect(x: 12, y: row5Y, width: 230, height: 22)
+        sudoField.placeholderString = "Mac 管理员密码"
+        sudoField.frame = NSRect(x: 248, y: row5Y - 3, width: 150, height: 26)
+        let sudoTip = NSTextField(labelWithString: "用于读取精确温度（powermetrics）")
+        sudoTip.font = NSFont.systemFont(ofSize: 10)
+        sudoTip.textColor = .tertiaryLabelColor
+        sudoTip.frame = NSRect(x: 406, y: row5Y, width: 210, height: 18)
+        for v in [cpuTempCheck, sudoField, sudoTip] { v.translatesAutoresizingMaskIntoConstraints = true; bc.addSubview(v) }
 
         // ---- 底部 hint 与操作 ----
         let hintY = boxY - 12 - 16
@@ -228,6 +243,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         rateThresholdField.stringValue = String(format: "%.2f", cfg.rateThreshold)
         rateThresholdField.isEnabled = cfg.rateAlert
 
+        cpuTempCheck.state = cfg.showCpuTemp ? .on : .off
+        sudoField.stringValue = cfg.sudoPassword
+        sudoField.isEnabled = cfg.showCpuTemp
+
         // 通知权限状态（异步获取）
         AppDelegate.notificationStatus { [weak self] status, granted in
             self?.notifStatusLabel.stringValue = "通知权限：\(status)"
@@ -252,6 +271,16 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         Store.shared.config.rateAlert = rateCheck.state == .on
         Store.shared.config.rateThreshold = max(0, parseNum(rateThresholdField.stringValue, default: 0.5))
         rateThresholdField.isEnabled = Store.shared.config.rateAlert
+
+        Store.shared.config.showCpuTemp = cpuTempCheck.state == .on
+        Store.shared.config.sudoPassword = sudoField.stringValue
+        sudoField.isEnabled = Store.shared.config.showCpuTemp
+    }
+
+    @objc private func cpuTempToggled() {
+        sudoField.isEnabled = cpuTempCheck.state == .on
+        applyControlsToConfig()
+        Store.shared.save()
     }
 
     private func parseNum(_ s: String, default def: Double) -> Double {
