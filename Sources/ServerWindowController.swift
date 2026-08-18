@@ -18,7 +18,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
     private let procLabel = NSTextField(labelWithString: "")
     private let loginTable = NSTableView()
     private let loginScroll = NSScrollView()
-    private let loginTitle = NSTextField(labelWithString: "最近登录记录（who / what time / from IP）")
+    private let loginTitle = NSTextField(labelWithString: "最近登录记录（谁 / 什么时间 / 来自哪个 IP）")
 
     private let winW: CGFloat = 660
     private let winH: CGFloat = 560
@@ -178,7 +178,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         diskColor, st.diskPercent, st.diskUsedGB, st.diskTotalGB,
         st.load1, st.load5, st.load15, st.swapPercent, Self.timeString(st.timestamp))
 
-        procLabel.stringValue = st.topProcesses.isEmpty ? "" : "Top 进程:\n" + st.topProcesses.joined(separator: "\n")
+        procLabel.stringValue = st.topProcesses.isEmpty ? "" : Self.formatProcLines(st.topProcesses)
         loginTable.reloadData()
     }
 
@@ -186,6 +186,22 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         let f = DateFormatter()
         f.dateFormat = "MM-dd HH:mm"
         return f.string(from: d)
+    }
+
+    /// 格式化 Top 进程展示：业务名 + 进程名 + 内存% + CPU% + PID（按业务名 14 字、comm 18 字固定列宽对齐）
+    private static func formatProcLines(_ rows: [String]) -> String {
+        var out = "Top 进程（按业务）：\n"
+        for row in rows {
+            let f = row.split(separator: "|", omittingEmptySubsequences: true).map(String.init)
+            if f.count == 5 {
+                let biz = f[0].padding(toLength: 14, withPad: " ", startingAt: 0)
+                let comm = f[1].padding(toLength: 18, withPad: " ", startingAt: 0)
+                out += String(format: "%@%@  %5s%% %5s%%  pid %@\n", biz, comm, f[2], f[3], f[4])
+            } else {
+                out += row + "\n"
+            }
+        }
+        return out
     }
 
     // MARK: - TableView
