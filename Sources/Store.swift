@@ -13,6 +13,7 @@ final class Store {
     private let serverStatusURL: URL
     private let alertsURL: URL
     private let serverHistoryURL: URL
+    private let chatLogsURL: URL
 
     var config = AppConfig()
     private(set) var records: [DayRecord] = []
@@ -20,6 +21,7 @@ final class Store {
     private(set) var serverStatuses: [String: ServerStatus] = [:] // serverId -> 最近采集结果
     private(set) var alerts: [AlertRecord] = []
     private(set) var serverHistory: [ServerHistoryEntry] = []
+    private(set) var chatLogs: [ChatLog] = []
     private var latestResults: [String: BalanceResult] = [:] // keyId -> 最近一次结果
     private var lastSeen: [String: (total: Double, time: Date)] = [:] // 上一轮观测余额+时间，用于算 delta/dt
 
@@ -32,6 +34,7 @@ final class Store {
         serverStatusURL = dir.appendingPathComponent("server_status.json")
         alertsURL = dir.appendingPathComponent("alerts.json")
         serverHistoryURL = dir.appendingPathComponent("server_history.json")
+        chatLogsURL = dir.appendingPathComponent("chat_logs.json")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
@@ -64,6 +67,10 @@ final class Store {
            let h = try? JSONDecoder().decode([ServerHistoryEntry].self, from: d) {
             serverHistory = h
         }
+        if let d = try? Data(contentsOf: chatLogsURL),
+           let cl = try? JSONDecoder().decode([ChatLog].self, from: d) {
+            chatLogs = cl
+        }
     }
 
     func save() {
@@ -75,6 +82,7 @@ final class Store {
         if let d = try? enc.encode(serverStatuses) { try? d.write(to: serverStatusURL) }
         if let d = try? enc.encode(alerts) { try? d.write(to: alertsURL) }
         if let d = try? enc.encode(serverHistory) { try? d.write(to: serverHistoryURL) }
+        if let d = try? enc.encode(chatLogs) { try? d.write(to: chatLogsURL) }
     }
 
     // MARK: - 服务器管理
@@ -123,6 +131,19 @@ final class Store {
         let cutoff = Date().addingTimeInterval(-90 * 86400)
         alerts.removeAll { $0.timestamp < cutoff }
         if alerts.count > 5000 { alerts.removeFirst(alerts.count - 5000) }
+        save()
+    }
+
+    /// 更新/追加一次 AI 助手会话日志（保留 30 天）
+    func upsertChatLog(_ log: ChatLog) {
+        if let idx = chatLogs.firstIndex(where: { $0.id == log.id }) {
+            chatLogs[idx] = log
+        } else {
+            chatLogs.append(log)
+        }
+        let cutoff = Date().addingTimeInterval(-30 * 86400)
+        chatLogs.removeAll { $0.timestamp < cutoff }
+        if chatLogs.count > 500 { chatLogs.removeFirst(chatLogs.count - 500) }
         save()
     }
 
