@@ -52,6 +52,10 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         super.showWindow(sender)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
+        // 自动让输入框获焦，光标直接在那里，可直接打字
+        DispatchQueue.main.async { [weak self] in
+            self?.window?.makeFirstResponder(self?.inputField)
+        }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
