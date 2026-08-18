@@ -19,8 +19,13 @@ final class TrendChartView: NSView {
         let bounds = self.bounds
         guard bounds.width > 60, bounds.height > 50 else { return }
 
+        // 卡片背景：浅色圆角
+        let card = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.06).setFill()
+        card.fill()
+
         NSColor.controlBackgroundColor.setFill()
-        bounds.fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 3), xRadius: 7, yRadius: 7).fill()
 
         let padL: CGFloat = 36, padR: CGFloat = 10, padT: CGFloat = 16, padB: CGFloat = 18
         let plotW = bounds.width - padL - padR
