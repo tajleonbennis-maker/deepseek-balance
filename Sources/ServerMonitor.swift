@@ -9,6 +9,11 @@ final class ServerMonitor {
 
     private init() {}
 
+    /// 供服务器助手对话使用的公共执行接口
+    func execute(server: ServerConfig, command: String, completion: @escaping (String?, String?) -> Void) {
+        runSSH(server: server, command: command, completion: completion)
+    }
+
     /// 采集单台服务器
     func collect(server: ServerConfig, completion: @escaping (ServerStatus) -> Void) {
         let script = """
