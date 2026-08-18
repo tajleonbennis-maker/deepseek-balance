@@ -20,7 +20,7 @@ final class ServerMonitor {
         echo "===MEM==="; LC_ALL=C free -m | head -3
         echo "===LOAD==="; uptime
         echo "===DISK==="; LC_ALL=C df -h / | tail -1
-        echo "===PROC==="; LC_ALL=C ps -eo pid,pmem,pcpu,comm --sort=-pmem | head -8
+        echo "===PROC==="; LC_ALL=C ps -eo pid,user,pmem,pcpu,comm,args --sort=-pmem | head -10
         echo "===LAST==="; LC_ALL=C last -n 8 2>/dev/null | grep -v '^$' | grep -v 'wtmp begins' | head -8
         """
 
@@ -149,12 +149,49 @@ final class ServerMonitor {
         for line in lines.dropFirst() {   // 跳过表头
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
-            let f = trimmed.split(separator: " ", maxSplits: 4).map(String.init)
-            if f.count >= 4, let mem = Double(f[1]), let cpu = Double(f[2]) {
-                procs.append(String(format: "%5.1f%% %5.1f%%  %@", mem, cpu, f[3]))
+            // 6 段: pid user mem cpu comm args...
+            let f = trimmed.split(separator: " ", maxSplits: 5, omittingEmptySubsequences: true).map(String.init)
+            if f.count >= 6, let mem = Double(f[2]), let cpu = Double(f[3]) {
+                let pid = f[0]; let comm = f[4]
+                let args = String(f[5].prefix(100))
+                let biz = businessName(comm: comm, args: args)
+                // 格式: 业务名|comm|mem|cpu|pid（展示端 split 解析）
+                procs.append("\(biz)|\(comm)|\(mem)|\(cpu)|\(pid)")
             }
         }
         st.topProcesses = procs
+    }
+
+    /// 把进程 comm/args 翻译成可读的业务名（如 deeptutor / ecomm / xray代理）
+    static func businessName(comm: String, args: String) -> String {
+        let a = args.lowercased()
+        if a.contains("deeptutor") { return "deeptutor" }
+        if a.contains("ecomm") || a.contains("cyberstroll") || a.contains("ecom-intel") { return "ecomm" }
+        if a.contains("openwifi") { return "openwifi" }
+        if a.contains("supplier") || a.contains("supply-chain") || a.contains("supply_chain") { return "supply-chain" }
+        if a.contains("ai-news") { return "ai-news" }
+        if comm.contains("xray-linux") { return "xray代理" }
+        if comm.contains("x-ui") { return "xray面板" }
+        if comm.contains("next-server") { return "deeptutor-web" }
+        if comm.contains("gunicorn") {
+            if a.contains("supply-chain-brain") { return "supply-chain-brain" }
+            if a.contains("ai-news") { return "ai-news" }
+            return "gunicorn"
+        }
+        if comm.contains("uvicorn") { return a.contains("deeptutor") ? "deeptutor" : "uvicorn" }
+        if comm.contains("python") { return a.contains("deeptutor") ? "deeptutor" : "python" }
+        if comm == "java" { return "java(ubuntu)" }
+        if comm.contains("nginx") { return "nginx" }
+        if comm.contains("dockerd") { return "docker" }
+        if comm.contains("containerd") { return "containerd" }
+        if comm.contains("fail2ban") { return "fail2ban" }
+        if comm.contains("fwupd") { return "fwupd" }
+        if comm.contains("journal") { return "systemd" }
+        if comm.contains("multipathd") { return "multipathd" }
+        if comm.contains("cron") { return "cron" }
+        if comm.contains("sshd") { return "sshd" }
+        if comm.contains("polkit") { return "polkit" }
+        return comm   // 兜底用原进程名
     }
 
     private static func parseLast(_ lines: [String], st: inout ServerStatus) {
