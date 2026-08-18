@@ -11,6 +11,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
     private let editBtn = NSButton()
     private let delBtn = NSButton()
     private let exportBtn = NSButton()
+    private let exportSelectedBtn = NSButton(title: "导出选中", target: nil, action: nil)
     private let checkBtn = NSButton(title: "立即检查全部", target: nil, action: nil)
 
     // 趋势图
@@ -72,6 +73,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
 
         // 服务器列表
         setupTable(tableView, columns: [("name", "名称", 100), ("host", "主机", 150), ("user", "用户", 80), ("status", "状态", 70), ("mem", "内存", 90), ("disk", "磁盘", 80)])
+        tableView.allowsMultipleSelection = true   // ★ 支持多选导出
         scrollView.frame = NSRect(x: margin, y: 400, width: winW - 2*margin, height: 168)
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .bezelBorder
@@ -83,9 +85,10 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         setupButton(addBtn, "＋ 添加", #selector(addServer), NSRect(x: margin, y: btnY, width: 80, height: 28))
         setupButton(editBtn, "编辑", #selector(editServer), NSRect(x: margin + 88, y: btnY, width: 60, height: 28))
         setupButton(delBtn, "删除", #selector(deleteServer), NSRect(x: margin + 156, y: btnY, width: 60, height: 28))
-        setupButton(exportBtn, "导出 CSV", #selector(exportCSV), NSRect(x: winW - margin - 270, y: btnY, width: 90, height: 28))
-        setupButton(checkBtn, "立即检查全部", #selector(checkAll), NSRect(x: winW - margin - 170, y: btnY, width: 110, height: 28))
-        [addBtn, editBtn, delBtn, exportBtn, checkBtn].forEach { content.addSubview($0) }
+        setupButton(exportBtn, "导出全部", #selector(exportAllCSV), NSRect(x: winW - margin - 330, y: btnY, width: 90, height: 28))
+        setupButton(exportSelectedBtn, "导出选中", #selector(exportSelectedCSV), NSRect(x: winW - margin - 232, y: btnY, width: 90, height: 28))
+        setupButton(checkBtn, "立即检查全部", #selector(checkAll), NSRect(x: winW - margin - 132, y: btnY, width: 110, height: 28))
+        [addBtn, editBtn, delBtn, exportBtn, exportSelectedBtn, checkBtn].forEach { content.addSubview($0) }
 
         // 详情摘要
         summaryLabel.font = NSFont.systemFont(ofSize: 12)
@@ -419,17 +422,36 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         }
     }
 
-    // MARK: - 导出 CSV
+    // MARK: - 导出 CSV（全部 / 选中）
 
-    @objc private func exportCSV() {
+    @objc private func exportAllCSV() {
         let servers = Store.shared.servers
         guard !servers.isEmpty else {
             let a = NSAlert(); a.messageText = "没有可导出的服务器"; a.addButton(withTitle: "好")
             NSApp.activate(ignoringOtherApps: true); a.runModal()
             return
         }
+        performExport(servers: servers, scope: "全部")
+    }
+
+    @objc private func exportSelectedCSV() {
+        let rows = tableView.selectedRowIndexes
+        let all = Store.shared.servers
+        guard !rows.isEmpty else {
+            let a = NSAlert(); a.messageText = "未选中任何服务器"; a.informativeText = "先在列表里按住 ⌘ / Shift 多选，再点「导出选中」。"; a.addButton(withTitle: "好")
+            NSApp.activate(ignoringOtherApps: true); a.runModal()
+            return
+        }
+        let selected = rows.compactMap { row -> ServerConfig? in
+            all.indices.contains(row) ? all[row] : nil
+        }
+        performExport(servers: selected, scope: "选中")
+    }
+
+    private func performExport(servers: [ServerConfig], scope: String) {
+        guard !servers.isEmpty else { return }
         let confirm = NSAlert()
-        confirm.messageText = "导出 \(servers.count) 台服务器配置？"
+        confirm.messageText = "导出\(scope)的 \(servers.count) 台服务器配置？"
         confirm.informativeText = "CSV 包含密码明文，请妥善保管！"
         confirm.addButton(withTitle: "导出")
         confirm.addButton(withTitle: "取消")
@@ -439,7 +461,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         let panel = NSSavePanel()
         panel.title = "导出服务器列表"
         let df = DateFormatter(); df.dateFormat = "yyyyMMdd_HHmm"
-        panel.nameFieldStringValue = "servers_\(df.string(from: Date())).csv"
+        panel.nameFieldStringValue = "servers_\(scope)_\(df.string(from: Date())).csv"
         panel.allowedContentTypes = [.commaSeparatedText]
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
