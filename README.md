@@ -21,6 +21,8 @@
 | 🔔 Low-balance alert · 余额不足告警 | Notifies when balance drops below a threshold · 余额低于阈值发系统通知 |
 | 📤 Export · 导出 | Export all or selected keys to CSV · 导出全部或选中 Key 到 CSV |
 | 🖥️ Server monitor · 服务器监控 | Save multiple servers (IP/user/password, exportable), hourly check memory / CPU / disk / top processes / **login audit** · 保存多台服务器（可导出），每小时检查内存/CPU/磁盘/进程/**登录审计** |
+| 🤖 Server AI assistant · 服务器 AI 助手 | Chat with DeepSeek: describe what to do in natural language, it generates shell commands, you execute with one click, multi-turn · 自然语言描述 → DeepSeek 生成命令 → 一键执行 → 多轮对话 |
+| 🕘 History · 历史记录 | Alerts / balance / server status are all persisted and viewable · 告警/余额/服务器状态全部留痕可追溯 |
 | 🔒 Local-only · 数据本地 | All data stays in `~/Library/Application Support/DeepSeekBalance/` · 所有数据仅存本机，不上传 |
 
 ---
