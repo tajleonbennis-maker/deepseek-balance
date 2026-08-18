@@ -440,6 +440,30 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         line.isEnabled = false
         menu.addItem(line)
 
+        // CPU 型号 / 频率 / 热状态
+        var cpuInfo = "  "
+        if !st.cpuBrand.isEmpty {
+            cpuInfo += st.cpuBrand
+                .replacingOccurrences(of: "Intel(R) Core(TM)", with: "")
+                .replacingOccurrences(of: " CPU @", with: "")
+                .replacingOccurrences(of: "(R)", with: "")
+            if st.cpuFreqGHz > 0 {
+                cpuInfo += String(format: " · %.2fGHz", st.cpuFreqGHz)
+            }
+        }
+        if st.thermalLevel > 0 {
+            let heat = st.thermalLevel < 50 ? "凉" : (st.thermalLevel < 80 ? "温" : "热")
+            cpuInfo += " · 🌡️ \(Int(st.thermalLevel))（\(heat)）"
+        }
+        if st.speedLimit < 100 {
+            cpuInfo += " · ⚠️ 降频 \(Int(st.speedLimit))%"
+        }
+        if cpuInfo != "  " {
+            let cpuItem = NSMenuItem(title: cpuInfo, action: nil, keyEquivalent: "")
+            cpuItem.isEnabled = false
+            menu.addItem(cpuItem)
+        }
+
         if !st.topProcesses.isEmpty {
             let top = st.topProcesses.prefix(5).map { String(format: "  %@  %.1f GB", $0.name, $0.memGB) }
             let topItem = NSMenuItem(title: "  内存 Top 5：", action: nil, keyEquivalent: "")
