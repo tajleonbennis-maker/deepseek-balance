@@ -9,9 +9,13 @@ final class Store {
     private let dir: URL
     private let configURL: URL
     private let recordsURL: URL
+    private let serversURL: URL
+    private let serverStatusURL: URL
 
     var config = AppConfig()
     private(set) var records: [DayRecord] = []
+    private(set) var servers: [ServerConfig] = []
+    private(set) var serverStatuses: [String: ServerStatus] = [:] // serverId -> 最近采集结果
     private var latestResults: [String: BalanceResult] = [:] // keyId -> 最近一次结果
     private var lastSeen: [String: (total: Double, time: Date)] = [:] // 上一轮观测余额+时间，用于算 delta/dt
 
@@ -20,6 +24,8 @@ final class Store {
             .appendingPathComponent("DeepSeekBalance", isDirectory: true)
         configURL = dir.appendingPathComponent("config.json")
         recordsURL = dir.appendingPathComponent("records.json")
+        serversURL = dir.appendingPathComponent("servers.json")
+        serverStatusURL = dir.appendingPathComponent("server_status.json")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
@@ -36,6 +42,14 @@ final class Store {
            let r = try? JSONDecoder().decode([DayRecord].self, from: d) {
             records = r
         }
+        if let d = try? Data(contentsOf: serversURL),
+           let s = try? JSONDecoder().decode([ServerConfig].self, from: d) {
+            servers = s
+        }
+        if let d = try? Data(contentsOf: serverStatusURL),
+           let st = try? JSONDecoder().decode([String: ServerStatus].self, from: d) {
+            serverStatuses = st
+        }
     }
 
     func save() {
@@ -43,6 +57,34 @@ final class Store {
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let d = try? enc.encode(config) { try? d.write(to: configURL) }
         if let d = try? enc.encode(records) { try? d.write(to: recordsURL) }
+        if let d = try? enc.encode(servers) { try? d.write(to: serversURL) }
+        if let d = try? enc.encode(serverStatuses) { try? d.write(to: serverStatusURL) }
+    }
+
+    // MARK: - 服务器管理
+
+    func upsertServer(_ server: ServerConfig) {
+        if let idx = servers.firstIndex(where: { $0.id == server.id }) {
+            servers[idx] = server
+        } else {
+            servers.append(server)
+        }
+        save()
+    }
+
+    func removeServer(id: String) {
+        servers.removeAll { $0.id == id }
+        serverStatuses.removeValue(forKey: id)
+        save()
+    }
+
+    func record(serverStatus: ServerStatus) {
+        serverStatuses[serverStatus.serverId] = serverStatus
+        save()
+    }
+
+    func serverStatus(for id: String) -> ServerStatus? {
+        serverStatuses[id]
     }
 
     // MARK: - 快照与用量
