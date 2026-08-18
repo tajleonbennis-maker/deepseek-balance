@@ -1,7 +1,7 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// 服务器管理窗口：添加/编辑/删除服务器，查看健康状态（内存/CPU/磁盘/进程/登录审计），导出 CSV
+/// 服务器管理窗口：服务器列表 + 资源趋势图 + 健康详情（内存/CPU/磁盘/进程/登录审计）+ 导出 CSV
 final class ServerWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
 
     // 服务器列表
@@ -13,6 +13,10 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
     private let exportBtn = NSButton()
     private let checkBtn = NSButton(title: "立即检查全部", target: nil, action: nil)
 
+    // 趋势图
+    private let chartTitle = NSTextField(labelWithString: "资源趋势（最近 30 次采集）：")
+    private let trendView = TrendChartView()
+
     // 详情
     private let summaryLabel = NSTextField(labelWithString: "选中服务器查看详情")
     private let procLabel = NSTextField(labelWithString: "")
@@ -20,8 +24,9 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
     private let loginScroll = NSScrollView()
     private let loginTitle = NSTextField(labelWithString: "最近登录记录（谁 / 什么时间 / 来自哪个 IP）")
 
-    private let winW: CGFloat = 660
-    private let winH: CGFloat = 560
+    private let winW: CGFloat = 760
+    private let winH: CGFloat = 720
+    private let margin: CGFloat = 16
 
     private var isChecking = false
 
@@ -56,18 +61,25 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
 
     private func buildUI() {
         guard let content = window?.contentView else { return }
-        let margin: CGFloat = 16
+
+        // 趋势图
+        chartTitle.font = NSFont.systemFont(ofSize: 11)
+        chartTitle.textColor = .secondaryLabelColor
+        chartTitle.frame = NSRect(x: margin, y: winH - margin - 14, width: winW - 2*margin, height: 16)
+        trendView.frame = NSRect(x: margin, y: winH - margin - 14 - 118, width: winW - 2*margin, height: 116)
+        content.addSubview(chartTitle)
+        content.addSubview(trendView)
 
         // 服务器列表
-        setupTable(tableView, columns: [("name", "名称", 100), ("host", "主机", 140), ("user", "用户", 80), ("status", "状态", 70), ("mem", "内存", 90), ("disk", "磁盘", 80)])
-        scrollView.frame = NSRect(x: margin, y: winH - margin - 170, width: winW - 2*margin, height: 170)
+        setupTable(tableView, columns: [("name", "名称", 100), ("host", "主机", 150), ("user", "用户", 80), ("status", "状态", 70), ("mem", "内存", 90), ("disk", "磁盘", 80)])
+        scrollView.frame = NSRect(x: margin, y: 400, width: winW - 2*margin, height: 168)
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .bezelBorder
         scrollView.documentView = tableView
         content.addSubview(scrollView)
 
         // 按钮行
-        let btnY = winH - margin - 170 - 38
+        let btnY: CGFloat = 364
         setupButton(addBtn, "＋ 添加", #selector(addServer), NSRect(x: margin, y: btnY, width: 80, height: 28))
         setupButton(editBtn, "编辑", #selector(editServer), NSRect(x: margin + 88, y: btnY, width: 60, height: 28))
         setupButton(delBtn, "删除", #selector(deleteServer), NSRect(x: margin + 156, y: btnY, width: 60, height: 28))
@@ -79,7 +91,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         summaryLabel.font = NSFont.systemFont(ofSize: 12)
         summaryLabel.lineBreakMode = .byWordWrapping
         summaryLabel.maximumNumberOfLines = 0
-        summaryLabel.frame = NSRect(x: margin, y: btnY - 44, width: winW - 2*margin, height: 40)
+        summaryLabel.frame = NSRect(x: margin, y: 308, width: winW - 2*margin, height: 46)
         content.addSubview(summaryLabel)
 
         // Top 进程
@@ -87,17 +99,17 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         procLabel.lineBreakMode = .byWordWrapping
         procLabel.maximumNumberOfLines = 0
         procLabel.textColor = .secondaryLabelColor
-        procLabel.frame = NSRect(x: margin, y: btnY - 44 - 78, width: winW - 2*margin, height: 72)
+        procLabel.frame = NSRect(x: margin, y: 224, width: winW - 2*margin, height: 78)
         content.addSubview(procLabel)
 
         // 登录审计
         loginTitle.font = NSFont.systemFont(ofSize: 11)
         loginTitle.textColor = .secondaryLabelColor
-        loginTitle.frame = NSRect(x: margin, y: btnY - 44 - 78 - 24, width: winW - 2*margin, height: 18)
+        loginTitle.frame = NSRect(x: margin, y: 202, width: winW - 2*margin, height: 18)
         content.addSubview(loginTitle)
 
-        setupTable(loginTable, columns: [("time", "时间", 130), ("user", "用户", 100), ("ip", "来源 IP", 180), ("dur", "时长", 90)])
-        loginScroll.frame = NSRect(x: margin, y: margin, width: winW - 2*margin, height: 120)
+        setupTable(loginTable, columns: [("time", "时间", 130), ("user", "用户", 100), ("ip", "来源 IP", 190), ("dur", "时长", 90)])
+        loginScroll.frame = NSRect(x: margin, y: 72, width: winW - 2*margin, height: 124)
         loginScroll.hasVerticalScroller = true
         loginScroll.borderType = .bezelBorder
         loginScroll.documentView = loginTable
@@ -106,7 +118,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         let hint = NSTextField(labelWithString: "密码本地明文存储，仅用于本机 SSH 采集；导出 CSV 含密码，请妥善保管。")
         hint.font = NSFont.systemFont(ofSize: 10)
         hint.textColor = .tertiaryLabelColor
-        hint.frame = NSRect(x: margin, y: margin + 124, width: winW - 2*margin, height: 14)
+        hint.frame = NSRect(x: margin, y: 48, width: winW - 2*margin, height: 14)
         content.addSubview(hint)
     }
 
@@ -137,7 +149,6 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
 
     private func reloadServers() {
         tableView.reloadData()
-        // 恢复选中
         if tableView.selectedRow < 0, !Store.shared.servers.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
@@ -150,11 +161,32 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         guard row >= 0, row < servers.count else {
             summaryLabel.stringValue = servers.isEmpty ? "尚未添加服务器 — 点「＋ 添加」" : "选中一台服务器查看详情"
             procLabel.stringValue = ""
+            trendView.series = []
             loginTable.reloadData()
             return
         }
         let server = servers[row]
         let st = Store.shared.serverStatus(for: server.id)
+
+        // 趋势图：最近 30 次采集
+        let history = Store.shared.serverHistory
+            .filter { $0.serverId == server.id }
+            .sorted { $0.timestamp < $1.timestamp }
+            .suffix(30)
+            .map { $0 }
+        if history.count >= 2 {
+            trendView.series = [
+                TrendChartView.Series(label: "内存", color: .systemBlue, values: history.map { $0.memPercent }),
+                TrendChartView.Series(label: "磁盘", color: .systemOrange, values: history.map { $0.diskPercent }),
+                TrendChartView.Series(label: "Swap", color: .systemPurple, values: history.map { $0.swapPercent }),
+            ]
+            trendView.xLabels = [Self.timeString(history.first!.timestamp), Self.timeString(history.last!.timestamp)]
+            chartTitle.stringValue = "资源趋势（最近 \(history.count) 次采集）："
+        } else {
+            trendView.series = []
+            chartTitle.stringValue = "资源趋势：采集 2 次以上后自动生成"
+        }
+
         guard let st = st else {
             summaryLabel.stringValue = "\(server.name)（\(server.host)）— 尚未采集，点「立即检查全部」"
             procLabel.stringValue = ""
@@ -188,7 +220,7 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         return f.string(from: d)
     }
 
-    /// 格式化 Top 进程展示：业务名 + 进程名 + 内存% + CPU% + PID（按业务名 14 字、comm 18 字固定列宽对齐）
+    /// 格式化 Top 进程展示：业务名 + 进程名 + 内存% + CPU% + PID（业务名 14 字、comm 18 字固定列宽对齐）
     private static func formatProcLines(_ rows: [String]) -> String {
         var out = "Top 进程（按业务）：\n"
         for row in rows {
@@ -351,7 +383,6 @@ final class ServerWindowController: NSWindowController, NSTableViewDataSource, N
         server.name = name; server.host = host; server.username = user; server.password = pass
         Store.shared.upsertServer(server)
         reloadServers()
-        // 添加后立即检查一次
         check(server: server)
     }
 
