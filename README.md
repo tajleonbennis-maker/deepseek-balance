@@ -20,6 +20,7 @@
 | 📈 Rate alert · 消耗速率告警 | Alerts when spend rate exceeds X yuan/minute · 每分钟消耗速率超过阈值即告警 |
 | 🔔 Low-balance alert · 余额不足告警 | Notifies when balance drops below a threshold · 余额低于阈值发系统通知 |
 | 📤 Export · 导出 | Export all or selected keys to CSV · 导出全部或选中 Key 到 CSV |
+| 🖥️ Server monitor · 服务器监控 | Save multiple servers (IP/user/password, exportable), hourly check memory / CPU / disk / top processes / **login audit** · 保存多台服务器（可导出），每小时检查内存/CPU/磁盘/进程/**登录审计** |
 | 🔒 Local-only · 数据本地 | All data stays in `~/Library/Application Support/DeepSeekBalance/` · 所有数据仅存本机，不上传 |
 
 ---
@@ -102,6 +103,26 @@ In Settings: **导出全部 Key** (all) or **导出选中** (multi-select rows w
 
 > ⚠️ The exported CSV contains **plaintext keys** — keep it safe, never commit it to a repo or upload it anywhere.
 > ⚠️ 导出的 CSV 包含**明文密钥**，请妥善保管，切勿提交到仓库或上传到任何地方。
+
+### Server monitor · 服务器监控
+
+Menu bar → **服务器管理…** to add servers (name, IP[:port], username, password). The app collects every hour (or on demand via 立即检查全部):
+
+- **内存 / CPU**：usage %, available MB, load average
+- **磁盘**：usage % and used/total GB
+- **Top 进程**：top memory consumers
+- **登录审计**：who logged in, from which IP, at what time (`last`)
+
+Alerts (system notification) when memory > 90% or disk > 85%. Server configs can be exported to CSV (contains plaintext passwords — keep it safe).
+
+菜单栏 → 「服务器管理…」添加服务器（名称、IP[:端口]、用户名、密码）。每小时自动采集（或点「立即检查全部」）：
+
+- **内存 / CPU**：使用率%、可用 MB、负载
+- **磁盘**：使用率% 与已用/总量 GB
+- **Top 进程**：内存占用最高的进程
+- **登录审计**：谁、从哪个 IP、什么时间登录过（`last`）
+
+内存 > 90% 或磁盘 > 85% 时发系统通知。服务器配置可导出 CSV（含明文密码，请妥善保管）。
 
 ---
 
