@@ -1,7 +1,7 @@
 import AppKit
 
-/// 服务器助手：自然语言 → DeepSeek 生成命令 → SSH 执行 → 结果回传 DeepSeek 分析（多轮对话）
-final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
+/// 服务器助手：自然语言 → DeepSeek 生成命令 → SSH 执行 → 结果回传 DeepSeek 分析（多轮对话）；执行过的查询自动记忆为「常用查询」
+final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
 
     static let shared = ServerChatWindowController()
 
@@ -18,6 +18,12 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
     private let sendBtn = NSButton(title: "发送", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
+    // 常用查询面板
+    private let queryTitle = NSTextField(labelWithString: "常用查询（执行过的命令已自动记忆，双击直接执行）：")
+    private let queryTable = NSTableView()
+    private let queryScroll = NSScrollView()
+    private let delQueryBtn = NSButton(title: "删除选中", target: nil, action: nil)
+
     // 状态
     private var messages: [ChatMessage] = []
     private var pendingCommands: [String] = []
@@ -25,6 +31,7 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
     private var sessionId = UUID().uuidString
     private var sessionStartedAt = Date()
     private var sessionServerName = ""
+    private var lastUserText = ""   // 最近一次用户提问（用于自动保存常用查询）
 
     private let systemPrompt = """
     你是服务器运维助手。用户会描述想在远程 Linux 服务器上做的操作（查看文件、查日志、看服务状态、排查问题、部署等）。
@@ -38,7 +45,7 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 780, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 780, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = "服务器助手（DeepSeek 驱动）"
@@ -46,9 +53,28 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         window.delegate = self
         buildUI()
         reloadServers()
+        reloadQueries()
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
+
+    /// 打开 AI 助手并选中指定服务器（供总览卡片"AI"按钮调用）
+    static func show(serverId: String) {
+        let vc = ServerChatWindowController.shared
+        vc.reloadServers()
+        let servers = Store.shared.servers.filter { $0.enabled }
+        if let idx = servers.firstIndex(where: { $0.id == serverId }) {
+            vc.serverPopup.selectItem(at: idx)
+            vc.sessionId = UUID().uuidString
+            vc.sessionStartedAt = Date()
+            vc.messages.removeAll()
+            vc.chatView.string = ""
+            vc.cmdView.string = ""
+            vc.pendingCommands = []
+            vc.clearChat()
+        }
+        vc.showWindow(nil)
+    }
 
     override func showWindow(_ sender: Any?) {
         reloadServers()
@@ -74,14 +100,14 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
 
         // 顶部：服务器选择
         let srvLabel = NSTextField(labelWithString: "目标服务器：")
-        srvLabel.frame = NSRect(x: 16, y: 578, width: 80, height: 22)
-        serverPopup.frame = NSRect(x: 100, y: 578, width: 280, height: 26)
+        srvLabel.frame = NSRect(x: 16, y: 658, width: 80, height: 22)
+        serverPopup.frame = NSRect(x: 100, y: 658, width: 280, height: 26)
         serverPopup.target = self
         serverPopup.action = #selector(serverChanged)
 
         let clearBtn = NSButton(title: "清空对话", target: nil, action: nil)
         clearBtn.bezelStyle = .rounded
-        clearBtn.frame = NSRect(x: W - 16 - 110, y: 578, width: 110, height: 26)
+        clearBtn.frame = NSRect(x: W - 16 - 110, y: 658, width: 110, height: 26)
         clearBtn.target = self
         clearBtn.action = #selector(clearChat)
 
@@ -90,7 +116,7 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         content.addSubview(clearBtn)
 
         // 对话区
-        chatScroll.frame = NSRect(x: 16, y: 280, width: W - 32, height: 290)
+        chatScroll.frame = NSRect(x: 16, y: 340, width: W - 32, height: 310)
         chatScroll.hasVerticalScroller = true
         chatScroll.borderType = .bezelBorder
         chatView.isEditable = false
@@ -101,13 +127,17 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         chatScroll.documentView = chatView
         content.addSubview(chatScroll)
 
-        // 命令区
+        // 命令区（左）＋ 常用查询（右）
         cmdTitle.font = NSFont.systemFont(ofSize: 11)
         cmdTitle.textColor = .secondaryLabelColor
-        cmdTitle.frame = NSRect(x: 16, y: 252, width: W - 32, height: 18)
+        cmdTitle.frame = NSRect(x: 16, y: 312, width: 470, height: 18)
+        queryTitle.font = NSFont.systemFont(ofSize: 11)
+        queryTitle.textColor = .secondaryLabelColor
+        queryTitle.frame = NSRect(x: 510, y: 312, width: 254, height: 18)
         content.addSubview(cmdTitle)
+        content.addSubview(queryTitle)
 
-        cmdScroll.frame = NSRect(x: 16, y: 140, width: W - 32, height: 106)
+        cmdScroll.frame = NSRect(x: 16, y: 200, width: 470, height: 106)
         cmdScroll.hasVerticalScroller = true
         cmdScroll.borderType = .bezelBorder
         cmdView.isEditable = false
@@ -117,18 +147,42 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         cmdScroll.documentView = cmdView
         content.addSubview(cmdScroll)
 
+        queryTable.dataSource = self
+        queryTable.delegate = self
+        queryTable.rowHeight = 24
+        queryTable.usesAlternatingRowBackgroundColors = true
+        queryTable.doubleAction = #selector(queryDoubleClicked)
+        let qc1 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("qtitle"))
+        qc1.title = "查询（双击执行）"
+        qc1.width = 160
+        let qc2 = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("qcount"))
+        qc2.title = "次"
+        qc2.width = 40
+        queryTable.addTableColumn(qc1)
+        queryTable.addTableColumn(qc2)
+        queryScroll.frame = NSRect(x: 510, y: 200, width: 254, height: 106)
+        queryScroll.hasVerticalScroller = true
+        queryScroll.borderType = .bezelBorder
+        queryScroll.documentView = queryTable
+        content.addSubview(queryScroll)
+
         // 执行区
         execBtn.bezelStyle = .rounded
         execBtn.target = self
         execBtn.action = #selector(execPending)
-        execBtn.frame = NSRect(x: 16, y: 104, width: 130, height: 28)
-        autoExecCheck.frame = NSRect(x: 156, y: 106, width: 240, height: 22)
+        execBtn.frame = NSRect(x: 16, y: 164, width: 130, height: 28)
+        autoExecCheck.frame = NSRect(x: 156, y: 166, width: 240, height: 22)
+        delQueryBtn.bezelStyle = .rounded
+        delQueryBtn.target = self
+        delQueryBtn.action = #selector(delQueryAction)
+        delQueryBtn.frame = NSRect(x: 510, y: 164, width: 100, height: 28)
         content.addSubview(execBtn)
         content.addSubview(autoExecCheck)
+        content.addSubview(delQueryBtn)
 
         // 输入区
         inputField.placeholderString = "输入你想做的事，例如：查看 /opt/deeptutor 目录结构、看 nginx 日志最近的报错…"
-        inputField.frame = NSRect(x: 16, y: 60, width: W - 32 - 120, height: 28)
+        inputField.frame = NSRect(x: 16, y: 110, width: W - 32 - 120, height: 28)
         inputField.target = self
         inputField.action = #selector(sendAction)
         inputField.delegate = self
@@ -136,14 +190,14 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         sendBtn.keyEquivalent = "\r"
         sendBtn.target = self
         sendBtn.action = #selector(sendAction)
-        sendBtn.frame = NSRect(x: W - 16 - 110, y: 60, width: 110, height: 28)
+        sendBtn.frame = NSRect(x: W - 16 - 110, y: 110, width: 110, height: 28)
         content.addSubview(inputField)
         content.addSubview(sendBtn)
 
         // 状态
         statusLabel.font = NSFont.systemFont(ofSize: 10)
         statusLabel.textColor = .secondaryLabelColor
-        statusLabel.frame = NSRect(x: 16, y: 26, width: W - 32, height: 16)
+        statusLabel.frame = NSRect(x: 16, y: 76, width: W - 32, height: 16)
         content.addSubview(statusLabel)
     }
 
@@ -186,6 +240,7 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         guard !isBusy else { return }
 
         inputField.stringValue = ""
+        lastUserText = text
         appendChat("🧑 我（\(server.name)）：\n\(text)", color: .labelColor)
         messages.append(ChatMessage(role: "user", content: text))
         logEntry(role: "user", content: text, server: server)
@@ -275,6 +330,11 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
             self.statusLabel.stringValue = "已执行，正在让 DeepSeek 分析结果…"
             self.messages.append(ChatMessage(role: "user", content: "命令执行结果：\n\(resultText)"))
             self.logEntry(role: "result", content: resultText, server: server)
+            // 自动记忆为常用查询（下次可直接双击执行）
+            if !cmds.isEmpty, !self.lastUserText.isEmpty {
+                Store.shared.upsertSavedQuery(title: self.lastUserText, serverId: server.id, commands: cmds)
+                self.reloadQueries()
+            }
             self.askDeepSeek()
         }
     }
@@ -298,6 +358,81 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         cmdView.string = ""
         pendingCommands = []
         clearChat()
+    }
+
+    // MARK: - 常用查询
+
+    private func reloadQueries() {
+        queryTable.reloadData()
+    }
+
+    @objc private func queryDoubleClicked() {
+        let row = queryTable.clickedRow
+        let queries = Store.shared.savedQueries
+        guard row >= 0, row < queries.count else { return }
+        let q = queries[row]
+        guard let server = Store.shared.servers.first(where: { $0.id == q.serverId }) else {
+            appendChat("⚠️ 该查询对应的服务器已不存在", color: .systemRed)
+            return
+        }
+        // 直接执行已保存的命令
+        appendChat("⚡ 执行常用查询「\(q.title)」于 \(server.name)：\n" + q.commands.map { "$ \($0)" }.joined(separator: "\n"), color: .systemBlue)
+        isBusy = true
+        statusLabel.stringValue = "执行中…"
+        var results: [String] = []
+        let lock = NSLock()
+        let group = DispatchGroup()
+        for c in q.commands {
+            group.enter()
+            ServerMonitor.shared.execute(server: server, command: c) { out, err in
+                lock.lock()
+                results.append("$ \(c)\n\(out ?? err ?? "（无输出）")")
+                lock.unlock()
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { [weak self] in
+            guard let self = self else { return }
+            self.isBusy = false
+            let resultText = results.joined(separator: "\n\n")
+            self.appendChat("📥 执行结果：\n\(resultText)", color: .secondaryLabelColor)
+            self.statusLabel.stringValue = "已执行常用查询「\(q.title)」"
+            self.logEntry(role: "result", content: "常用查询「\(q.title)」结果：\n\(resultText)", server: server)
+        }
+    }
+
+    @objc private func delQueryAction() {
+        let row = queryTable.selectedRow
+        let queries = Store.shared.savedQueries
+        guard row >= 0, row < queries.count else { NSSound.beep(); return }
+        Store.shared.removeSavedQuery(id: queries[row].id)
+        reloadQueries()
+    }
+
+    // MARK: - 常用查询表格
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        Store.shared.savedQueries.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let queries = Store.shared.savedQueries
+        guard row < queries.count, let id = tableColumn?.identifier.rawValue else { return nil }
+        let q = queries[row]
+        let text = id == "qtitle" ? q.title : "\(q.useCount)"
+        let cell = NSTableCellView()
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 11)
+        label.lineBreakMode = .byTruncatingTail
+        label.textColor = id == "qtitle" ? .labelColor : .secondaryLabelColor
+        cell.addSubview(label)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
+        return cell
     }
 
     // MARK: - 工具
