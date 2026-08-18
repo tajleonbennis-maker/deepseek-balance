@@ -39,6 +39,10 @@ struct AppConfig: Codable {
     var rateThreshold: Double = 0.5           // 速率 > ¥X/分钟 触发
     var notifiedRateKeys: [String: Double] = [:]
 
+    // 本机监控：精确 CPU 温度（需管理员权限）
+    var showCpuTemp: Bool = false             // 是否用管理员权限读取精确温度
+    var sudoPassword: String = ""             // 管理员密码（本地明文存储，仅用于 powermetrics）
+
     init() {}
 
     // 自定义解码：旧配置无新字段时使用默认值（向前兼容）
@@ -46,6 +50,7 @@ struct AppConfig: Codable {
         case keys, refreshInterval, lowBalanceAlert, alertThreshold, notifiedLowKeys
         case spikeAlert, spikeThreshold, rateAlert, rateThreshold
         case notifiedSpikeKeys, notifiedRateKeys
+        case showCpuTemp, sudoPassword
     }
 
     init(from decoder: Decoder) throws {
@@ -61,6 +66,8 @@ struct AppConfig: Codable {
         rateThreshold = (try? c.decode(Double.self, forKey: .rateThreshold)) ?? 0.5
         notifiedSpikeKeys = (try? c.decode([String: Double].self, forKey: .notifiedSpikeKeys)) ?? [:]
         notifiedRateKeys = (try? c.decode([String: Double].self, forKey: .notifiedRateKeys)) ?? [:]
+        showCpuTemp = (try? c.decode(Bool.self, forKey: .showCpuTemp)) ?? false
+        sudoPassword = (try? c.decode(String.self, forKey: .sudoPassword)) ?? ""
     }
 }
 
@@ -196,4 +203,14 @@ struct ChatLog: Codable, Identifiable {
 struct ChatLogEntry: Codable {
     var role: String    // user / assistant / command / result
     var content: String
+}
+
+// MARK: - 常用查询（AI 助手执行过的指令，可复用）
+struct SavedQuery: Codable, Identifiable {
+    var id: String
+    var title: String        // 描述（取自用户问题摘要）
+    var serverId: String
+    var commands: [String]
+    var createdAt: Date
+    var useCount: Int
 }
