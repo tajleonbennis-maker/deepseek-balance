@@ -17,7 +17,8 @@ swiftc -O -swift-version 5 \
   Sources/StatusMenuController.swift Sources/SettingsWindowController.swift \
   Sources/ServerMonitor.swift Sources/ServerWindowController.swift \
   Sources/HistoryWindowController.swift Sources/DeepSeekChatClient.swift \
-  Sources/ServerChatWindowController.swift Sources/TrendChartView.swift
+  Sources/ServerChatWindowController.swift Sources/TrendChartView.swift \
+  Sources/ServerQuickViewController.swift
 
 echo "==> 拷贝 Info.plist"
 cp Info.plist "$APP/Contents/Info.plist"
