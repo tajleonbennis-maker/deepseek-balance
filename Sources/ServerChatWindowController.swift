@@ -22,6 +22,9 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
     private var messages: [ChatMessage] = []
     private var pendingCommands: [String] = []
     private var isBusy = false
+    private var sessionId = UUID().uuidString
+    private var sessionStartedAt = Date()
+    private var sessionServerName = ""
 
     private let systemPrompt = """
     你是服务器运维助手。用户会描述想在远程 Linux 服务器上做的操作（查看文件、查日志、看服务状态、排查问题、部署等）。
@@ -185,7 +188,17 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         inputField.stringValue = ""
         appendChat("🧑 我（\(server.name)）：\n\(text)", color: .labelColor)
         messages.append(ChatMessage(role: "user", content: text))
+        logEntry(role: "user", content: text, server: server)
         askDeepSeek()
+    }
+
+    /// 追加一条会话日志并持久化
+    private func logEntry(role: String, content: String, server: ServerConfig?) {
+        sessionServerName = server?.name ?? sessionServerName
+        var entries = Store.shared.chatLogs.first { $0.id == sessionId }?.entries ?? []
+        entries.append(ChatLogEntry(role: role, content: content))
+        Store.shared.upsertChatLog(ChatLog(id: sessionId, timestamp: sessionStartedAt,
+                                           serverId: server?.id ?? "", serverName: sessionServerName, entries: entries))
     }
 
     private func askDeepSeek() {
@@ -210,6 +223,7 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
             }
             self.statusLabel.stringValue = "就绪"
             self.messages.append(ChatMessage(role: "assistant", content: reply))
+            self.logEntry(role: "assistant", content: reply, server: self.selectedServer())
 
             let parsed = Self.parseCommands(from: reply)
             self.appendChat("🤖 DeepSeek：\n\(parsed.explanation.isEmpty ? reply : parsed.explanation)", color: .systemBlue)
@@ -260,6 +274,7 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
             self.appendChat("📥 执行结果：\n\(resultText)", color: .secondaryLabelColor)
             self.statusLabel.stringValue = "已执行，正在让 DeepSeek 分析结果…"
             self.messages.append(ChatMessage(role: "user", content: "命令执行结果：\n\(resultText)"))
+            self.logEntry(role: "result", content: resultText, server: server)
             self.askDeepSeek()
         }
     }
@@ -269,11 +284,15 @@ final class ServerChatWindowController: NSWindowController, NSTextFieldDelegate,
         pendingCommands = []
         chatView.string = ""
         cmdView.string = ""
-        statusLabel.stringValue = "已清空，开始新对话"
+        sessionId = UUID().uuidString
+        sessionStartedAt = Date()
+        statusLabel.stringValue = "已清空，开始新对话（新会话将单独归档）"
         appendChat("👋 服务器助手已就绪。描述你想在服务器上做的事，例如：\n· 查看 /opt/deeptutor 目录下有哪些文件\n· 看下 nginx 最近有没有报错\n· 磁盘快满了，帮我找出大文件", color: .secondaryLabelColor)
     }
 
     @objc private func serverChanged() {
+        sessionId = UUID().uuidString
+        sessionStartedAt = Date()
         messages.removeAll()
         chatView.string = ""
         cmdView.string = ""
