@@ -101,3 +101,56 @@ struct BalanceResult {
         }
     }
 }
+
+// MARK: - 服务器配置
+struct ServerConfig: Codable, Identifiable {
+    var id: String
+    var name: String
+    var host: String        // IP 或 IP:port
+    var username: String
+    var password: String    // 本地明文存储，仅用于本机 SSH 采集
+    var enabled: Bool
+
+    init(id: String = UUID().uuidString, name: String, host: String,
+         username: String, password: String, enabled: Bool = true) {
+        self.id = id
+        self.name = name
+        self.host = host
+        self.username = username
+        self.password = password
+        self.enabled = enabled
+    }
+}
+
+// MARK: - 单次登录记录（登录审计）
+struct LoginRecord: Codable {
+    var user: String
+    var fromIP: String
+    var time: String        // 如 "08-16 11:54"
+    var duration: String    // 如 "00:06"
+}
+
+// MARK: - 服务器健康状态（单次采集结果）
+struct ServerStatus: Codable {
+    var serverId: String
+    var timestamp: Date
+    var online: Bool
+    var error: String?
+
+    var memPercent: Double = 0      // 内存使用率 %
+    var memUsedMB: Double = 0
+    var memTotalMB: Double = 0
+    var memAvailMB: Double = 0
+    var swapPercent: Double = 0
+
+    var load1: Double = 0
+    var load5: Double = 0
+    var load15: Double = 0
+
+    var diskPercent: Double = 0
+    var diskUsedGB: Double = 0
+    var diskTotalGB: Double = 0
+
+    var topProcesses: [String] = []
+    var logins: [LoginRecord] = []
+}
