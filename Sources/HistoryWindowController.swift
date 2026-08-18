@@ -10,14 +10,17 @@ final class HistoryWindowController: NSWindowController, NSTableViewDataSource, 
     private let alertTable = NSTableView()
     private let balanceTable = NSTableView()
     private let serverTable = NSTableView()
+    private let chatTable = NSTableView()
 
     private let alertScroll = NSScrollView()
     private let balanceScroll = NSScrollView()
     private let serverScroll = NSScrollView()
+    private let chatScroll = NSScrollView()
 
     private let alertCount = NSTextField(labelWithString: "")
     private let balanceCount = NSTextField(labelWithString: "")
     private let serverCount = NSTextField(labelWithString: "")
+    private let chatCount = NSTextField(labelWithString: "")
 
     private init() {
         let window = NSWindow(
@@ -82,10 +85,22 @@ final class HistoryWindowController: NSWindowController, NSTableViewDataSource, 
         serverCount.textColor = .secondaryLabelColor
         tabView.addTabViewItem(serverTab)
 
+        let chatTab = NSTabViewItem(identifier: "chat")
+        chatTab.label = "操作日志"
+        chatTab.view = buildScroll(chatScroll, table: chatTable,
+                                   cols: [("time", "时间", 140), ("server", "服务器", 120), ("summary", "内容摘要", 460)])
+        chatTable.target = self
+        chatTable.doubleAction = #selector(chatDoubleClicked)
+        chatTab.view?.addSubview(chatCount)
+        chatCount.frame = NSRect(x: 8, y: 0, width: 400, height: 18)
+        chatCount.font = NSFont.systemFont(ofSize: 10)
+        chatCount.textColor = .secondaryLabelColor
+        tabView.addTabViewItem(chatTab)
+
         content.addSubview(tabView)
 
         // 底部状态条
-        let hint = NSTextField(labelWithString: "告警保留 90 天 · 余额快照保留 60 天 · 服务器状态保留 7 天（数据仅存本机）")
+        let hint = NSTextField(labelWithString: "告警保留 90 天 · 余额快照保留 60 天 · 服务器状态保留 7 天 · 操作日志保留 30 天（双击操作日志可看完整对话）")
         hint.font = NSFont.systemFont(ofSize: 10)
         hint.textColor = .tertiaryLabelColor
         hint.frame = NSRect(x: 8, y: 8, width: 700, height: 16)
@@ -123,9 +138,11 @@ final class HistoryWindowController: NSWindowController, NSTableViewDataSource, 
         balanceCount.stringValue = "共 \(balances.count) 天 × \(Store.shared.config.keys.count) 个账号的快照"
         let servers = Store.shared.serverHistory.sorted { $0.timestamp > $1.timestamp }
         serverCount.stringValue = "共 \(servers.count) 次采集（最近 7 天）"
+        chatCount.stringValue = "共 \(Store.shared.chatLogs.count) 次 AI 助手会话（最近 30 天）"
         alertTable.reloadData()
         balanceTable.reloadData()
         serverTable.reloadData()
+        chatTable.reloadData()
     }
 
     private func keyName(_ id: String) -> String {
@@ -142,6 +159,7 @@ final class HistoryWindowController: NSWindowController, NSTableViewDataSource, 
         if tableView === alertTable { return Store.shared.alerts.count }
         if tableView === balanceTable { return Store.shared.records.count }
         if tableView === serverTable { return Store.shared.serverHistory.count }
+        if tableView === chatTable { return Store.shared.chatLogs.count }
         return 0
     }
 
@@ -192,6 +210,20 @@ final class HistoryWindowController: NSWindowController, NSTableViewDataSource, 
             case "load": text = String(format: "%.2f", h.load1)
             default: return nil
             }
+        } else if tableView === chatTable {
+            let logs = Store.shared.chatLogs.sorted { $0.timestamp > $1.timestamp }
+            guard row < logs.count else { return nil }
+            let log = logs[row]
+            switch id {
+            case "time": text = Self.timeStr(log.timestamp)
+            case "server": text = log.serverName
+            case "summary":
+                // 摘要：最后一条有效内容
+                if let last = log.entries.last {
+                    text = "\(last.content.replacingOccurrences(of: "\n", with: " ").prefix(80))"
+                } else { text = "（空）" }
+            default: return nil
+            }
         } else {
             return nil
         }
@@ -215,5 +247,31 @@ final class HistoryWindowController: NSWindowController, NSTableViewDataSource, 
         let f = DateFormatter()
         f.dateFormat = "MM-dd HH:mm:ss"
         return f.string(from: d)
+    }
+
+    /// 双击操作日志：弹窗查看完整对话
+    @objc private func chatDoubleClicked() {
+        let row = chatTable.clickedRow
+        let logs = Store.shared.chatLogs.sorted { $0.timestamp > $1.timestamp }
+        guard row >= 0, row < logs.count else { return }
+        let log = logs[row]
+
+        var body = "时间：\(Self.timeStr(log.timestamp))    服务器：\(log.serverName)\n\n"
+        for e in log.entries {
+            switch e.role {
+            case "user": body += "🧑 我：\n\(e.content)\n\n"
+            case "assistant": body += "🤖 DeepSeek：\n\(e.content)\n\n"
+            case "command": body += "🔧 命令：\n\(e.content)\n\n"
+            case "result": body += "📥 执行结果：\n\(e.content)\n\n"
+            default: body += "\(e.role)：\n\(e.content)\n\n"
+            }
+        }
+        let alert = NSAlert()
+        alert.messageText = "操作日志（\(log.serverName)）"
+        alert.informativeText = body
+        alert.addButton(withTitle: "关闭")
+        alert.accessoryView = nil
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 }
