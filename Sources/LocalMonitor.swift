@@ -36,7 +36,6 @@ final class LocalMonitor {
             } else {
                 status = LocalStatus()
             }
-            // 管理员权限精确温度（用户已在设置开启 + 填了密码）
             let cfg = Store.shared.config
             if cfg.showCpuTemp, !cfg.sudoPassword.isEmpty {
                 self?.collectCpuTemp { temp in
@@ -52,13 +51,13 @@ final class LocalMonitor {
     /// 用管理员权限读精确 CPU 温度：powermetrics（密码 base64 传输，规避特殊字符）
     private func collectCpuTemp(completion: @escaping (Double) -> Void) {
         let b64 = Data(Store.shared.config.sudoPassword.utf8).base64EncodedString()
-        let script = "echo \(b64) | base64 -D | sudo -S powermetrics --samplers smc -n 1 2>/dev/null | grep -i temperature | head -5"
+        let script = "echo \(b64) | base64 -D | sudo -S powermetrics --samplers smc -n 1 2>&1 | grep -i temperature | head -5"
         run(script: script) { output, _ in
             guard let output = output, !output.isEmpty else {
                 completion(0)
                 return
             }
-            // 形如: CPU die temperature: 55.31 C / CPU 0 temperature: 47.5 C
+            // 形如: CPU die temperature: 97.03 C (fan)
             for line in output.components(separatedBy: "\n") where line.lowercased().contains("temperature") {
                 let nums = line.split(separator: " ").compactMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
                 if let t = nums.first(where: { $0 > 0 && $0 < 150 }) {
