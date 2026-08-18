@@ -11,6 +11,7 @@ struct LocalStatus {
     var cpuFreqGHz: Double = 0
     var thermalLevel: Double = 0        // machdep.xcpm.cpu_thermal_level（0-127，越高越热）
     var speedLimit: Double = 100        // CPU_Speed_Limit（100=满速，<100 说明降频发热）
+    var cpuTempC: Double = 0            // 精确 CPU 温度（需管理员权限，showCpuTemp 开启时采集）
 }
 
 final class LocalMonitor {
@@ -28,12 +29,44 @@ final class LocalMonitor {
         echo "===DISK==="; df -h / | tail -1
         echo "===PROC==="; ps -m -o comm=,rss= -c | head -6
         """
+        run(script: script) { [weak self] output, _ in
+            var status: LocalStatus
+            if let output = output, !output.isEmpty {
+                status = Self.parse(output)
+            } else {
+                status = LocalStatus()
+            }
+            // 管理员权限精确温度（用户已在设置开启 + 填了密码）
+            let cfg = Store.shared.config
+            if cfg.showCpuTemp, !cfg.sudoPassword.isEmpty {
+                self?.collectCpuTemp { temp in
+                    status.cpuTempC = temp
+                    completion(status)
+                }
+            } else {
+                completion(status)
+            }
+        }
+    }
+
+    /// 用管理员权限读精确 CPU 温度：powermetrics（密码 base64 传输，规避特殊字符）
+    private func collectCpuTemp(completion: @escaping (Double) -> Void) {
+        let b64 = Data(Store.shared.config.sudoPassword.utf8).base64EncodedString()
+        let script = "echo \(b64) | base64 -D | sudo -S powermetrics --samplers smc -n 1 2>/dev/null | grep -i temperature | head -5"
         run(script: script) { output, _ in
             guard let output = output, !output.isEmpty else {
-                completion(LocalStatus())
+                completion(0)
                 return
             }
-            completion(Self.parse(output))
+            // 形如: CPU die temperature: 55.31 C / CPU 0 temperature: 47.5 C
+            for line in output.components(separatedBy: "\n") where line.lowercased().contains("temperature") {
+                let nums = line.split(separator: " ").compactMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
+                if let t = nums.first(where: { $0 > 0 && $0 < 150 }) {
+                    completion(t)
+                    return
+                }
+            }
+            completion(0)
         }
     }
 
