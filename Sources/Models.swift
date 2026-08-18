@@ -183,3 +183,17 @@ struct ServerHistoryEntry: Codable {
     var swapPercent: Double
     var load1: Double
 }
+
+// MARK: - AI 助手操作日志（一次会话）
+struct ChatLog: Codable, Identifiable {
+    var id: String          // sessionId
+    var timestamp: Date     // 会话开始时间
+    var serverId: String
+    var serverName: String
+    var entries: [ChatLogEntry]
+}
+
+struct ChatLogEntry: Codable {
+    var role: String    // user / assistant / command / result
+    var content: String
+}
