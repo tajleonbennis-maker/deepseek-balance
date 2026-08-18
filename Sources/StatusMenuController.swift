@@ -457,6 +457,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         if st.cpuTempC > 0 {
             cpuInfo += String(format: " · 温度 %.1f℃", st.cpuTempC)
+        } else if Store.shared.config.showCpuTemp {
+            cpuInfo += " · 温度读取失败（密码错误？）"
         }
         if st.speedLimit < 100 {
             cpuInfo += " · ⚠️ 降频 \(Int(st.speedLimit))%"
