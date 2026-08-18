@@ -455,6 +455,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             let heat = st.thermalLevel < 50 ? "凉" : (st.thermalLevel < 80 ? "温" : "热")
             cpuInfo += " · 🌡️ \(Int(st.thermalLevel))（\(heat)）"
         }
+        if st.cpuTempC > 0 {
+            cpuInfo += String(format: " · 温度 %.1f℃", st.cpuTempC)
+        }
         if st.speedLimit < 100 {
             cpuInfo += " · ⚠️ 降频 \(Int(st.speedLimit))%"
         }
