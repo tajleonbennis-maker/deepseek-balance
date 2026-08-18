@@ -154,3 +154,32 @@ struct ServerStatus: Codable {
     var topProcesses: [String] = []
     var logins: [LoginRecord] = []
 }
+
+// MARK: - 告警历史记录（可追溯）
+struct AlertRecord: Codable, Identifiable {
+    var id: String
+    var timestamp: Date
+    var category: String   // 用量告警 / 余额提醒 / 服务器告警
+    var subject: String    // 账号名 / 服务器名
+    var body: String
+
+    init(id: String = UUID().uuidString, timestamp: Date = Date(),
+         category: String, subject: String, body: String) {
+        self.id = id
+        self.timestamp = timestamp
+        self.category = category
+        self.subject = subject
+        self.body = body
+    }
+}
+
+// MARK: - 服务器状态历史（精简快照，按次采集追加）
+struct ServerHistoryEntry: Codable {
+    var serverId: String
+    var timestamp: Date
+    var online: Bool
+    var memPercent: Double
+    var diskPercent: Double
+    var swapPercent: Double
+    var load1: Double
+}
