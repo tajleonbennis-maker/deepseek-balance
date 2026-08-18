@@ -139,10 +139,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         Store.shared.save()
 
         let reason = !result.isAvailable ? "余额不足以继续调用 API" : "已低于 ¥\(cfg.alertThreshold) 阈值"
-        notify(title: "DeepSeek 余额提醒 · \(key.name)", body: "当前余额 \(StatusMenuController.fmt(result.total, result.currency))，\(reason)")
+        notify(title: "DeepSeek 余额提醒 · \(key.name)", body: "当前余额 \(StatusMenuController.fmt(result.total, result.currency))，\(reason)", category: "余额提醒", subject: key.name)
     }
 
-    private func notify(title: String, body: String) {
+    private func notify(title: String, body: String, category: String = "用量告警", subject: String = "") {
+        // 1) 写入历史（可追溯）
+        Store.shared.record(alert: AlertRecord(category: category, subject: subject.isEmpty ? title : subject, body: body))
+        // 2) 发系统通知
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             DispatchQueue.main.async {
@@ -215,7 +218,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         if dirty { Store.shared.save() }
         for body in messages {
-            notify(title: "DeepSeek 用量告警 · \(key.name)", body: body)
+            notify(title: "DeepSeek 用量告警 · \(key.name)", body: body, category: "用量告警", subject: key.name)
         }
     }
 
@@ -268,6 +271,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let serverMgr = NSMenuItem(title: "服务器管理…", action: #selector(openServerManager), keyEquivalent: "s")
         serverMgr.target = self
         menu.addItem(serverMgr)
+
+        let serverChat = NSMenuItem(title: "服务器助手…（AI 对话）", action: #selector(openServerChat), keyEquivalent: "c")
+        serverChat.target = self
+        menu.addItem(serverChat)
+
+        let history = NSMenuItem(title: "历史记录…", action: #selector(openHistory), keyEquivalent: "h")
+        history.target = self
+        menu.addItem(history)
 
         let settings = NSMenuItem(title: "设置…", action: #selector(openSettingsAction), keyEquivalent: ",")
         settings.target = self
@@ -439,7 +450,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             notifiedServerAlerts.remove("\(server.id):disk")
         }
         for a in alerts {
-            notify(title: "服务器告警 · \(server.name)", body: a)
+            notify(title: "服务器告警 · \(server.name)", body: a, category: "服务器告警", subject: server.name)
         }
     }
 
@@ -448,6 +459,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             serverWindow = ServerWindowController()
         }
         serverWindow?.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openHistory() {
+        HistoryWindowController.shared.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openServerChat() {
+        ServerChatWindowController.shared.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
