@@ -38,9 +38,14 @@ enum BalanceFetcher {
             case 200:
                 guard let data = data,
                       let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                      let infos = json["balance_infos"] as? [[String: Any]],
-                      let info = infos.first
+                      let infos = json["balance_infos"] as? [[String: Any]]
                 else {
+                    result.status = .serverError
+                    return
+                }
+                // 多币种时优先 CNY（用户主力币种），否则取第一个
+                let info = infos.first(where: { ($0["currency"] as? String)?.uppercased() == "CNY" }) ?? infos.first
+                guard let info = info else {
                     result.status = .serverError
                     return
                 }
