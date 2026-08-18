@@ -14,7 +14,8 @@ swiftc -O -swift-version 5 \
   -o "$APP/Contents/MacOS/DeepSeekBalance" \
   Sources/main.swift Sources/AppDelegate.swift Sources/Models.swift \
   Sources/Store.swift Sources/BalanceFetcher.swift \
-  Sources/StatusMenuController.swift Sources/SettingsWindowController.swift
+  Sources/StatusMenuController.swift Sources/SettingsWindowController.swift \
+  Sources/ServerMonitor.swift Sources/ServerWindowController.swift
 
 echo "==> 拷贝 Info.plist"
 cp Info.plist "$APP/Contents/Info.plist"
