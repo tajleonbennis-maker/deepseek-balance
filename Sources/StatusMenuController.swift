@@ -380,26 +380,52 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         header.isEnabled = false
         menu.addItem(header)
 
+        // 健康汇总行：在线 / 告警一眼可见
+        let online = servers.filter {
+            guard let st = Store.shared.serverStatus(for: $0.id) else { return false }
+            return st.online
+        }.count
+        let alerting = servers.filter {
+            guard let st = Store.shared.serverStatus(for: $0.id), st.online else { return false }
+            return st.memPercent >= 90 || st.diskPercent >= 85
+        }.count
+        if alerting > 0 {
+            let summary = NSMenuItem(title: "⚠️ \(alerting) 台告警 · \(online) 台在线（共 \(servers.count) 台）", action: nil, keyEquivalent: "")
+            summary.isEnabled = false
+            menu.addItem(summary)
+        } else {
+            let summary = NSMenuItem(title: "✅ \(online) 台在线 · 全部正常（共 \(servers.count) 台）", action: nil, keyEquivalent: "")
+            summary.isEnabled = false
+            menu.addItem(summary)
+        }
+
         for server in servers {
             let st = Store.shared.serverStatus(for: server.id)
-            let line: String
+            let title: String
             if let st = st, st.online {
+                let hist = Store.shared.serverHistory
+                    .filter { $0.serverId == server.id }
+                    .suffix(2)
+                    .map { $0 }
+                var memArrow = ""
+                var diskArrow = ""
+                if hist.count >= 2 {
+                    let memDiff = hist[1].memPercent - hist[0].memPercent
+                    let diskDiff = hist[1].diskPercent - hist[0].diskPercent
+                    memArrow = memDiff > 1 ? "↑" : (memDiff < -1 ? "↓" : "")
+                    diskArrow = diskDiff > 1 ? "↑" : (diskDiff < -1 ? "↓" : "")
+                }
                 let dot = (st.memPercent >= 90 || st.diskPercent >= 85) ? "🔴" : "🟢"
-                line = "\(dot) \(server.name)  内存 \(Int(st.memPercent))% · 磁盘 \(Int(st.diskPercent))% · 负载 \(String(format: "%.2f", st.load1))"
+                title = "\(dot) \(server.name)  内存 \(Int(st.memPercent))%\(memArrow)  磁盘 \(Int(st.diskPercent))%\(diskArrow)  负载 \(String(format: "%.2f", st.load1))"
             } else if let st = st {
-                line = "🔴 \(server.name)  \(st.error ?? "采集失败")"
+                title = "🔴 \(server.name)  \(st.error ?? "采集失败")"
             } else {
-                line = "⚪ \(server.name)  未采集"
+                title = "⚪ \(server.name)  未采集"
             }
-            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            item.isEnabled = false
+            let item = NSMenuItem(title: title, action: #selector(openServerDetail(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = server.id
             menu.addItem(item)
-
-            if let st = st, st.online, let last = st.logins.first {
-                let sub = NSMenuItem(title: "   最近登录：\(last.user) @ \(last.fromIP)  \(last.time)", action: nil, keyEquivalent: "")
-                sub.isEnabled = false
-                menu.addItem(sub)
-            }
         }
     }
 
@@ -460,6 +486,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         serverWindow?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 菜单里点某台服务器 → 弹单台详情窗
+    @objc private func openServerDetail(_ sender: NSMenuItem) {
+        guard let sid = sender.representedObject as? String else { return }
+        ServerQuickViewController.show(serverId: sid)
     }
 
     @objc private func openHistory() {
